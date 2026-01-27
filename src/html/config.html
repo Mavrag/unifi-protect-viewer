@@ -1,107 +1,7 @@
 <html lang="en">
     <head>
         <title>Unifi Protect Viewer Config</title>
-
-        <style>
-            body {
-                margin: 0;
-                padding: 0;
-
-                font-family: Arial, Helvetica, sans-serif;
-            }
-
-            .wrapper {
-                display: flex;
-                width: 100vw;
-                height: 100vh;
-                overflow: auto;
-            }
-
-            .sidebar {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                overflow-y: auto;
-
-                width: 240px;
-                background-color: white;
-                padding: 80px;
-            }
-
-            .main {
-                flex-grow: 10;
-                background-color: rgb(246, 246, 248);
-            }
-
-            .hotkey {
-                display: flex;
-            }
-
-            .hotkey * {
-                width: 50%;
-            }
-
-            .logo {
-                display: flex;
-                justify-content: center;
-            }
-
-            .logo img {
-                max-width: 64px;
-                border-radius: 32px;
-            }
-
-            .group {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .group button {
-                padding: 0 16px;
-                line-height: 32px;
-                border: 1px solid #006fff;
-                border-radius: 4px;
-                color: #fff;
-                background-color: #006fff;
-                cursor: pointer;
-            }
-
-            .group button:disabled {
-                border-color: #cce2ff;
-                background-color: #cce2ff;
-            }
-
-            .group label {
-                font-size: 12px;
-            }
-
-            .group input {
-                border: 0;
-                outline: none;
-                padding-bottom: 10px;
-                padding-top: 5px;
-                margin-bottom: 10px;
-                border-bottom: 1px solid rgba(0,0,0,.85);
-                font-size: 14px;
-            }
-
-            .group input:hover, .group input:focus {
-
-                border-bottom: 1px solid #006fff;
-            }
-
-            .error {
-                border-left: 10px solid red;
-                padding: 0 16px;
-                line-height: 32px;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-
-            small {
-                font-size: 12px
-            }
-        </style>
+        <link rel="stylesheet" href="./styles.css">
     </head>
 
     <body>
@@ -113,29 +13,41 @@
 
                 <div>
                     <h3>Unifi Protect Viewer</h3>
-
-                    <p>Please enter your configuration down below!</p>
+                    <p>Configure login + which Live View/Dashboard each screen should open.</p>
                 </div>
 
-                <div class="group">
-                    <label for="url">Url*</label>
-                    <input id="url" name="url"/>
+                <div class="section">
+                    <div class="section-title">
+                        <h3>Login</h3>
+                        <span>Used for all screens</span>
+                    </div>
+
+                    <div class="grid-two">
+                        <div class="group">
+                            <label for="username">Username*</label>
+                            <input id="username" name="username" placeholder="viewer"/>
+                        </div>
+
+                        <div class="group">
+                            <label for="password">Password*</label>
+                            <input id="password" type="password" name="password" placeholder="••••••"/>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="group">
-                    <label for="username">Username*</label>
-                    <input id="username" name="username"/>
-                </div>
+                <div class="section">
+                    <div class="section-title">
+                        <h3>Screens</h3>
+                        <span>Screen 1 required. Add up to 6.</span>
+                    </div>
 
-                <div class="group">
-                    <label for="password">Password*</label>
-                    <input id="password" type="password" name="password"/>
+                    <div id="screens" class="screens"></div>
                 </div>
 
                 <div id="error" class="group error" style="display: none"></div>
 
-                <div class="group">
-                    <button onclick="save()">Save Config</button>
+                <div class="actions">
+                    <button class="primary-btn" onclick="save()">Save & Restart</button>
                 </div>
 
                 <div>
@@ -146,50 +58,181 @@
                     <div class="hotkey"><small>F11</small><span>Fullscreen</span></div>
                 </div>
             </div>
-
-            <div class="main">
-
-            </div>
         </div>
 
         <script type="text/javascript">
-            function save() {
-                const url = document.getElementById("url").value;
-                const username = document.getElementById("username").value;
-                const password = document.getElementById("password").value;
+            let screensConfig = [{ url: '', maximize: false }];
 
-                const errorField = document.getElementById("error");
+            function normalizeScreensConfig(values, fallbackUrl, fallbackCount) {
+                const list = Array.isArray(values) ? values : [];
+                let normalized = list.map(v => ({ url: v?.url || '', maximize: !!v?.maximize }));
 
-                if (url === "") {
-                    errorField.style.display = "initial";
-                    errorField.innerText = "The url is required!";
-                    return;
+                if (normalized.length === 0) {
+                    const count = Number(fallbackCount) || 1;
+                    for (let i = 0; i < Math.max(1, Math.min(count, 6)); i++) {
+                        normalized.push({ url: '', maximize: false });
+                    }
                 }
 
+                if ((!normalized[0]?.url || normalized[0].url.trim() === '') && fallbackUrl) {
+                    normalized[0] = { ...(normalized[0] || {}), url: fallbackUrl, maximize: !!normalized[0]?.maximize };
+                }
+
+                if (normalized.length < 1) normalized = [{ url: '', maximize: false }];
+
+                return normalized.slice(0, 6);
+            }
+
+            async function hydrate() {
+                const existing = await window.electronAPI.configLoad();
+
+                if (existing) {
+                    document.getElementById("username").value = existing.username || "";
+                    document.getElementById("password").value = existing.password || "";
+                    screensConfig = normalizeScreensConfig(existing.screensConfig, existing.url, existing.screens);
+                }
+
+                renderScreens();
+            }
+
+            function renderScreens() {
+                const container = document.getElementById('screens');
+                container.innerHTML = '';
+
+                screensConfig.forEach((screen, i) => {
+                    const card = document.createElement('div');
+                    card.className = 'screen-card';
+
+                    const head = document.createElement('div');
+                    head.className = 'card-head';
+
+                    const title = document.createElement('strong');
+                    title.innerText = `Screen ${i + 1}`;
+                    head.appendChild(title);
+
+                    if (i > 0) {
+                        const removeBtn = document.createElement('button');
+                        removeBtn.className = 'icon-btn';
+                        removeBtn.type = 'button';
+                        removeBtn.innerText = 'Remove';
+                        removeBtn.addEventListener('click', () => {
+                            screensConfig.splice(i, 1);
+                            renderScreens();
+                        });
+                        head.appendChild(removeBtn);
+                    }
+
+                    card.appendChild(head);
+
+                    const urlGroup = document.createElement('div');
+                    urlGroup.className = 'group';
+
+                    const label = document.createElement('label');
+                    label.innerText = `URL${i === 0 ? ' *' : ''}`;
+                    urlGroup.appendChild(label);
+
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.placeholder = i === 0 ? 'Required (Live View/Dashboard URL)' : 'Optional (inherits Screen 1 if empty)';
+                    input.value = screen.url || '';
+                    input.addEventListener('input', (e) => {
+                        screensConfig[i].url = e.target.value;
+                    });
+                    urlGroup.appendChild(input);
+
+                    card.appendChild(urlGroup);
+
+                    const checkboxWrap = document.createElement('label');
+                    checkboxWrap.className = 'checkrow';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = !!screen.maximize;
+                    checkbox.addEventListener('change', (e) => {
+                        screensConfig[i].maximize = !!e.target.checked;
+                    });
+                    checkboxWrap.appendChild(checkbox);
+
+                    const span = document.createElement('span');
+                    span.innerText = 'Start maximized';
+                    checkboxWrap.appendChild(span);
+
+                    card.appendChild(checkboxWrap);
+
+                    container.appendChild(card);
+                });
+
+                if (screensConfig.length < 6) {
+                    const add = document.createElement('div');
+                    add.className = 'screen-card add-card';
+                    add.addEventListener('click', () => {
+                        if (screensConfig.length >= 6) return;
+                        screensConfig.push({ url: '', maximize: false });
+                        renderScreens();
+                    });
+
+                    const plus = document.createElement('div');
+                    plus.className = 'add-plus';
+                    plus.innerText = '+';
+                    add.appendChild(plus);
+
+                    const txt = document.createElement('div');
+                    txt.innerText = 'Add screen';
+                    add.appendChild(txt);
+
+                    container.appendChild(add);
+                }
+            }
+
+            function showError(msg) {
+                const errorField = document.getElementById("error");
+                errorField.style.display = "initial";
+                errorField.innerText = msg;
+            }
+
+            function hideError() {
+                const errorField = document.getElementById("error");
+                errorField.style.display = "none";
+            }
+
+            function save() {
+                const username = document.getElementById("username").value.trim();
+                const password = document.getElementById("password").value;
+
                 if (username === "") {
-                    errorField.style.display = "initial";
-                    errorField.innerText = "The username is required!";
+                    showError("The username is required!");
                     return;
                 }
 
                 if (password === "") {
-                    errorField.style.display = "initial";
-                    errorField.innerText = "The password is required!";
+                    showError("The password is required!");
+                    return;
+                }
+
+                const normalizedScreens = normalizeScreensConfig(screensConfig, undefined, undefined);
+                const primaryUrl = normalizedScreens[0]?.url?.trim() || '';
+
+                if (!primaryUrl) {
+                    showError("Screen 1 URL is required!");
                     return;
                 }
 
                 const config = {
-                    url,
+                    url: primaryUrl,
                     username,
-                    password
+                    password,
+                    screens: normalizedScreens.length,
+                    screensConfig: normalizedScreens
                 }
 
-                errorField.style.display = "none";
+                hideError();
 
                 window.electronAPI.configSave(config);
 
                 window.electronAPI.restart();
             }
+
+            hydrate();
         </script>
     </body>
 </html>

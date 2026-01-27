@@ -59,16 +59,35 @@ function handleConfigSave(event, config) {
   store.set('config', config);
 }
 
+// window state helpers
+function getWindowState(index = 0) {
+  const states = store.get('windowStates') || [];
+  return states[index] || {};
+}
+
+function saveWindowState(index, win) {
+  if (!store.has('init') || portable) return;
+
+  const states = store.get('windowStates') || [];
+  states[index] = {
+    bounds: win.getBounds(),
+    isFullScreen: win.isFullScreen(),
+    isMaximized: win.isMaximized(),
+  };
+
+  store.set('windowStates', states);
+}
+
 // window handler
-async function handleWindow(mainWindow) {
-  if (store.has('config')) {
+async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true) {
+  if (store.has('config') && (urlOverride || store.get('config')?.url)) {
     // do not await here, the file is the fallback if the url cannot be loaded
     mainWindow.loadFile('./src/html/index.html').then();
 
-    await mainWindow.loadURL(store.get('config').url, {
+    await mainWindow.loadURL(urlOverride || store.get('config').url, {
       userAgent: userAgent
     });
-  } else {
+  } else if (allowConfigFallback) {
     await mainWindow.loadFile('./src/html/config.html');
   }
 
@@ -79,13 +98,15 @@ async function handleWindow(mainWindow) {
 
 
 
-async function createWindow () {
-  // Create the browser window.
+async function createViewerWindow (urlOverride = undefined, index = 0, allowConfigFallback = true, titleSuffix = '', maximizeHint = false) {
+  const state = getWindowState(index);
+
   const mainWindow = new BrowserWindow({
-    width: store.get('bounds')?.width || defaultWidth,
-    height: store.get('bounds')?.height || defaultHeight,
-    x: store.get('bounds')?.x || undefined,
-    y: store.get('bounds')?.y || undefined,
+    width: state?.bounds?.width || defaultWidth,
+    height: state?.bounds?.height || defaultHeight,
+    x: state?.bounds?.x ?? undefined,
+    y: state?.bounds?.y ?? undefined,
+    fullscreen: state?.isFullScreen || false,
     webPreferences: {
       nodeIntegration: false,
       spellcheck: true,
@@ -100,27 +121,55 @@ async function createWindow () {
     movable: true,
     resizable: true,
     closable: true,
-    darkTheme: false,
+    darkTheme: true,
     autoHideMenuBar: true,
   });
 
-  // set the main window title
-  mainWindow.setTitle('UnifiProtect Viewer');
+  if (state?.isMaximized || (!state?.bounds && maximizeHint)) {
+    mainWindow.maximize();
+  }
+
+  // set the window title
+  mainWindow.setTitle(`UnifiProtect Viewer${titleSuffix ? ` - ${titleSuffix}` : ''}`);
 
   // disable automatic app title updates
   mainWindow.on('page-title-updated', function(e) {
     e.preventDefault()
   });
 
-  // save bounds to store on close
-  mainWindow.on("close", function() {
-    if (store.has('init') && !portable) {
-      store.set('bounds', mainWindow.getBounds());
-    }
-  });
+  const persistState = () => saveWindowState(index, mainWindow);
 
-  // and load the index.html of the app.
-  await handleWindow(mainWindow);
+  // save bounds to store on close
+  mainWindow.on("close", persistState);
+  mainWindow.on("enter-full-screen", persistState);
+  mainWindow.on("leave-full-screen", persistState);
+  mainWindow.on("resize", persistState);
+  mainWindow.on("move", persistState);
+
+  // and load the index.html or target url of the app.
+  await handleWindow(mainWindow, urlOverride, allowConfigFallback);
+
+  return mainWindow;
+}
+
+
+
+async function createWindows () {
+  // when no config yet, open a single window that loads config
+  if (!store.has('config')) {
+    await createViewerWindow(undefined, 0, true, '');
+    return;
+  }
+
+  const config = store.get('config');
+  const screens = Math.max(1, Math.min(Number(config?.screens ?? 1) || 1, 6));
+  const screensConfig = Array.isArray(config?.screensConfig) ? config.screensConfig : [];
+
+  for (let i = 0; i < screens; i++) {
+    const titleSuffix = screens > 1 ? `Screen ${i + 1}` : '';
+    const perScreen = screensConfig[i] || {};
+    await createViewerWindow(perScreen.url || undefined, i, false, titleSuffix, !!perScreen.maximize);
+  }
 }
 
 
@@ -135,12 +184,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('configLoad', handleConfigLoad)
 
-  await createWindow();
+  await createWindows();
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindows()
   });
 });
 
