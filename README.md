@@ -2,6 +2,8 @@
 
 This is an electron app for unifi protect liveview build by Sebastian Loer. This version was testet with unifi protect v4.0.21 (Version 2.x, Version 3.x is also compatible) running on an UDM-Pro. 
 
+This fork contains personal modifications by Mavrag for 24/7/365 usage in a security-guard environment. Credits remain with the original author(s) and prior maintainers.
+
 This app allows you to view your liveview from a simple app with automatic login. Just configure your unifi protect address and credentials and the app will automaticly login and present you the liveview you selected.
 
 ![Screenshot #1 Configuration](screenshots/liveview-v3.png)
@@ -17,6 +19,16 @@ Example Link: `https://192.168.1.1/protect/liveview/635e65bd000c1c0387005a5f` (V
 Example Link: `https://192.168.1.1/protect/dashboard/635e65bd000c1c0387005a5f` (Version 3 & 4)
 
 The Link needs to be set to the IP-address of your Unifi Protect installation. You can simply copy the link from your browser while viewing the liveview on your unifi protect instance.
+
+### Multi-screen dashboards
+
+You can configure multiple windows (screens) and assign a different dashboard URL per screen.
+
+- Each screen has its own dashboard URL
+- Each screen can optionally start maximized
+- Window size/position/fullscreen is persisted per screen
+
+Note: The app still supports the legacy single `url` config, but when `screensConfig` is present it will use the per-screen URLs.
 
 ## Installation
 
@@ -47,6 +59,63 @@ After configuration the app will automaticly start the liveview after startup. I
 - F9 Restart
 - F10 Restart & Reset
 - F11 Fullscreen (Electron, no Unifi Protect Fullscreen)
+
+## 24/7 operation (watchdog + recovery)
+
+This fork adds basic health monitoring intended for unattended operation:
+
+- Renderer heartbeat reporting to the main process
+- Automatic reload if a window becomes unresponsive or the stream appears stalled
+- Escalation to a full app relaunch if too many recoveries happen in a short time
+
+### Watchdog log file
+
+Watchdog/recovery events are logged to a file named `unifi-protect-viewer.log` inside Electron's `userData` directory.
+
+Typical locations:
+
+- Windows: `%APPDATA%\unifi-protect-viewer\unifi-protect-viewer.log`
+- Linux: `~/.config/unifi-protect-viewer/unifi-protect-viewer.log`
+- macOS: `~/Library/Application Support/unifi-protect-viewer/unifi-protect-viewer.log`
+
+## Ubuntu 22.04 (GUI) systemd user service
+
+If you run the packaged build on Ubuntu in a GUI environment, a systemd user service is a convenient way to keep it running.
+
+1) Enable lingering (start at boot):
+
+`sudo loginctl enable-linger $USER`
+
+2) Create `~/.config/systemd/user/unifi-protect-viewer.service`:
+
+```ini
+[Unit]
+Description=Unifi Protect Viewer
+After=graphical-session.target network-online.target
+Wants=network-online.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+ExecStart=/home/YOUR_USER/path/to/unifi-protect-viewer
+
+[Install]
+WantedBy=default.target
+```
+
+3) Enable and start:
+
+`systemctl --user daemon-reload`
+
+`systemctl --user enable --now unifi-protect-viewer.service`
+
+Logs:
+
+`journalctl --user -u unifi-protect-viewer.service -f`
 
 ## Chrome App
 
