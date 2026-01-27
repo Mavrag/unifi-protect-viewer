@@ -27,6 +27,69 @@ if (portable && !fs.existsSync(portableStoreCwd)) {
 
 const store = portable ? new Store({ name: 'storage', fileExtension: 'db', cwd: portableStoreCwd, encryptionKey: encryptionKey }) : new Store();
 
+const viewerWindows = new Map();
+const viewerHealth = new Map();
+let isQuitting = false;
+
+let logFilePath;
+
+const HEALTH_TIMEOUT_MS = 45_000;
+const STALL_TIMEOUT_MS = 120_000;
+const RECOVER_COOLDOWN_MS = 30_000;
+
+const RECOVERY_WINDOW_MS = 10 * 60_000;
+const HARD_RESTART_THRESHOLD = 5;
+const HARD_RESTART_COOLDOWN_MS = 15 * 60_000;
+
+function ensureLogFilePath() {
+  if (logFilePath) return logFilePath;
+  if (!app.isReady()) return undefined;
+
+  try {
+    const dir = app.getPath('userData');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    logFilePath = path.join(dir, 'unifi-protect-viewer.log');
+    return logFilePath;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function logEvent(level, msg, meta = undefined) {
+  const line = `${new Date().toISOString()} [${level}] ${msg}${meta ? ` ${JSON.stringify(meta)}` : ''}`;
+  try {
+    console.log(line);
+  } catch (_) {}
+
+  try {
+    const p = ensureLogFilePath();
+    if (!p) return;
+    fs.appendFile(p, `${line}\n`, () => {});
+  } catch (_) {}
+}
+
+function hardRelaunch(reason, meta = undefined) {
+  if (isQuitting) return;
+  const now = Date.now();
+  const last = Number(store.get('lastHardRestartAt') || 0);
+  if (now - last < HARD_RESTART_COOLDOWN_MS) return;
+
+  store.set('lastHardRestartAt', now);
+  logEvent('ERROR', 'Hard relaunch triggered', { reason, ...meta });
+
+  isQuitting = true;
+  try {
+    app.relaunch();
+  } catch (_) {
+  }
+  try {
+    app.exit(0);
+  } catch (_) {
+  }
+}
+
 
 
 // cause self-signed certificate
@@ -78,6 +141,147 @@ function saveWindowState(index, win) {
   store.set('windowStates', states);
 }
 
+function getDesiredScreensConfig() {
+  const config = store.get('config') || {};
+  const screens = Math.max(1, Math.min(Number(config?.screens ?? 1) || 1, 6));
+  const screensConfig = Array.isArray(config?.screensConfig) ? config.screensConfig : [];
+  return { config, screens, screensConfig };
+}
+
+async function recreateViewerWindow(index, reason = '') {
+  const old = viewerWindows.get(index);
+  if (old && !old.isDestroyed()) {
+    try { old.destroy(); } catch (_) {}
+  }
+  viewerWindows.delete(index);
+
+  logEvent('WARN', 'Recreate viewer window', { index, reason });
+
+  if (!store.has('config')) return;
+
+  const { screens, screensConfig } = getDesiredScreensConfig();
+  if (index < 0 || index >= screens) return;
+
+  const perScreen = screensConfig[index] || {};
+  const titleSuffix = screens > 1 ? `Screen ${index + 1}` : '';
+
+  try {
+    await createViewerWindow(perScreen.url || undefined, index, false, titleSuffix, !!perScreen.maximize);
+  } catch (_) {
+  }
+}
+
+function tryReloadViewerWindow(index) {
+  const win = viewerWindows.get(index);
+  if (!win || win.isDestroyed()) {
+    recreateViewerWindow(index, 'missing').then();
+    return;
+  }
+
+  try {
+    logEvent('WARN', 'Reload viewer window', { index });
+    win.webContents.reloadIgnoringCache();
+  } catch (_) {
+    recreateViewerWindow(index, 'reload-failed').then();
+  }
+}
+
+function noteRecovery(index, reason = '') {
+  const state = viewerHealth.get(index) || {};
+  const now = Date.now();
+  const history = Array.isArray(state.recoverHistory) ? state.recoverHistory : [];
+  const updatedHistory = history
+    .filter(t => Number.isFinite(t) && now - t < RECOVERY_WINDOW_MS)
+    .concat([now]);
+
+  viewerHealth.set(index, {
+    ...state,
+    lastRecoverAt: now,
+    recoverCount: (state.recoverCount || 0) + 1,
+    recoverHistory: updatedHistory,
+  });
+
+  logEvent('WARN', 'Recovery action', { index, reason, recoveriesInWindow: updatedHistory.length });
+
+  if (updatedHistory.length >= HARD_RESTART_THRESHOLD) {
+    hardRelaunch('too_many_recoveries', { index, recoveriesInWindow: updatedHistory.length });
+  }
+}
+
+function handleViewerHealth(event, payload) {
+  const idx = Number(payload?.screenIndex);
+  if (!Number.isFinite(idx)) return;
+
+  const now = Date.now();
+  const video = payload?.video || {};
+  const prev = viewerHealth.get(idx) || {};
+
+  const href = String(payload?.href || '');
+  const maxCurrentTime = Number(video?.maxCurrentTime);
+  const prevMax = Number(prev.lastMaxCurrentTime);
+
+  let hasProgress = false;
+  if (Number.isFinite(maxCurrentTime) && Number.isFinite(prevMax)) {
+    const isReset = maxCurrentTime + 2 < prevMax;
+    hasProgress = isReset || (maxCurrentTime > prevMax + 0.25);
+  } else {
+    hasProgress = Number.isFinite(maxCurrentTime);
+  }
+
+  if (prev.lastHref && href && href !== prev.lastHref) {
+    hasProgress = true;
+  }
+
+  const shouldTrackStall = (video?.count || 0) > 0 && !!video?.anyPlaying;
+
+  viewerHealth.set(idx, {
+    ...prev,
+    lastSeenAt: now,
+    lastHref: href,
+    lastVideo: video,
+    lastMaxCurrentTime: Number.isFinite(maxCurrentTime) ? maxCurrentTime : (prev.lastMaxCurrentTime ?? 0),
+    lastProgressAt: shouldTrackStall
+      ? (hasProgress ? now : (prev.lastProgressAt || now))
+      : now,
+  });
+}
+
+function startWatchdog() {
+  setInterval(() => {
+    if (!store.has('config')) return;
+
+    const { screens } = getDesiredScreensConfig();
+    const now = Date.now();
+
+    for (let i = 0; i < screens; i++) {
+      const win = viewerWindows.get(i);
+      if (!win || win.isDestroyed()) {
+        recreateViewerWindow(i, 'missing').then();
+        continue;
+      }
+
+      const health = viewerHealth.get(i);
+      const lastRecoverAt = health?.lastRecoverAt || 0;
+      const allowRecover = (now - lastRecoverAt) > RECOVER_COOLDOWN_MS;
+
+      if (health?.lastSeenAt && (now - health.lastSeenAt) > HEALTH_TIMEOUT_MS) {
+        if (allowRecover) {
+          noteRecovery(i, 'heartbeat_timeout');
+          tryReloadViewerWindow(i);
+        }
+        continue;
+      }
+
+      if (health?.lastProgressAt && (now - health.lastProgressAt) > STALL_TIMEOUT_MS) {
+        if (allowRecover) {
+          noteRecovery(i, 'stream_stall');
+          tryReloadViewerWindow(i);
+        }
+      }
+    }
+  }, 15_000);
+}
+
 // window handler
 async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true) {
   if (store.has('config') && (urlOverride || store.get('config')?.url)) {
@@ -111,6 +315,8 @@ async function createViewerWindow (urlOverride = undefined, index = 0, allowConf
       nodeIntegration: false,
       spellcheck: true,
       preload: path.join(__dirname, '/src/js/preload.js'),
+      additionalArguments: [`--upv-screen=${index}`],
+      backgroundThrottling: false,
       allowDisplayingInsecureContent: true,
       allowRunningInsecureContent: true
     },
@@ -149,6 +355,27 @@ async function createViewerWindow (urlOverride = undefined, index = 0, allowConf
   // and load the index.html or target url of the app.
   await handleWindow(mainWindow, urlOverride, allowConfigFallback);
 
+  viewerWindows.set(index, mainWindow);
+
+  mainWindow.on('unresponsive', () => {
+    if (isQuitting) return;
+    noteRecovery(index, 'unresponsive');
+    tryReloadViewerWindow(index);
+  });
+
+  mainWindow.webContents.on('render-process-gone', () => {
+    if (isQuitting) return;
+    noteRecovery(index, 'render_process_gone');
+    recreateViewerWindow(index, 'render-gone').then();
+  });
+
+  mainWindow.on('closed', () => {
+    viewerWindows.delete(index);
+    if (isQuitting) return;
+    noteRecovery(index, 'closed');
+    recreateViewerWindow(index, 'closed').then();
+  });
+
   return mainWindow;
 }
 
@@ -178,13 +405,22 @@ async function createWindows () {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
+
+  logEvent('INFO', 'App started', { version: app.getVersion(), platform: process.platform });
+
   ipcMain.on('reset', handleReset);
   ipcMain.on('restart', handleRestart);
   ipcMain.on('configSave', handleConfigSave);
+  ipcMain.on('viewerHealth', handleViewerHealth);
 
   ipcMain.handle('configLoad', handleConfigLoad)
 
   await createWindows();
+
+  startWatchdog();
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

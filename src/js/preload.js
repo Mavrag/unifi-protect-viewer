@@ -1,9 +1,83 @@
 const {contextBridge, ipcRenderer} = require('electron')
 
 
+function getScreenIndexFromArgs() {
+    const arg = (process?.argv || []).find(a => typeof a === 'string' && a.startsWith('--upv-screen='));
+    if (!arg)
+        return 0;
+    const n = Number(arg.split('=')[1]);
+    return Number.isFinite(n) ? n : 0;
+}
+
+
+function getDesiredUrl(config) {
+    const screenIndex = getScreenIndexFromArgs();
+
+    const list = Array.isArray(config?.screensConfig) ? config.screensConfig : [];
+    const perScreen = list[screenIndex];
+    const url = (perScreen?.url || config?.url || '').trim();
+    return url;
+}
+
+
+function ensureUpvStyle() {
+    const id = 'upv-style';
+    if (document.getElementById(id))
+        return;
+
+    const style = document.createElement('style');
+    style.id = id;
+    style.type = 'text/css';
+    style.textContent = `
+[class*="dashboard__StyledExpandButton"],
+[class*="ExpandButton__Root"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+`;
+
+    (document.head || document.documentElement).appendChild(style);
+}
+
+
+function collectVideoStats() {
+    const videos = Array.from(document.querySelectorAll('video'));
+    return {
+        count: videos.length,
+        maxCurrentTime: videos.length ? Math.max(...videos.map(v => Number(v.currentTime) || 0)) : 0,
+        anyPlaying: videos.some(v => !v.paused && !v.ended),
+        allPausedOrEnded: videos.every(v => v.paused || v.ended),
+        readyStates: videos.map(v => v.readyState),
+        networkStates: videos.map(v => v.networkState),
+    };
+}
+
+
+function startHealthReporter() {
+    const screenIndex = getScreenIndexFromArgs();
+
+    const report = () => {
+        try {
+            const video = collectVideoStats();
+            ipcRenderer.send('viewerHealth', {
+                screenIndex,
+                ts: Date.now(),
+                href: String(location?.href || ''),
+                video,
+            });
+        } catch (e) {
+        }
+    };
+
+    report();
+    setInterval(report, 10_000);
+}
+
+
 // event listeners
 addEventListener('load', () => {
     run().then();
+    startHealthReporter();
 }, {once: true});
 
 addEventListener('keydown', async (event) => {
@@ -187,13 +261,17 @@ async function handleLiveviewV4andNewer() {
 async function run() {
     const config = await configLoad();
 
+    const desiredUrl = getDesiredUrl(config);
+
     // config/ start page
     if (checkUrl('index.html') || checkUrl('config.html'))
         return;
 
-    if (!checkUrl(config.url) && !checkUrl('login?redirect')) {
-        console.log('redirect', config.url);
-        window.location.href = config.url;
+    ensureUpvStyle();
+
+    if (desiredUrl && !checkUrl(desiredUrl) && !checkUrl('login?redirect')) {
+        console.log('redirect', desiredUrl);
+        window.location.href = desiredUrl;
     }
 
     // wait until unifi loading screen visible, timeout 3000
@@ -263,7 +341,7 @@ async function run() {
         const offset = 10 * 60 * 1000;
 
         // wait until ~10 minutes before expire or page url changed
-        await waitUntil(() => !checkUrl(config.url) || new Date().getTime() > (loginExpiresAt - offset), -1, 60000);
+        await waitUntil(() => (desiredUrl ? !checkUrl(desiredUrl) : true) || new Date().getTime() > (loginExpiresAt - offset), -1, 60000);
 
         location.reload();
     }
