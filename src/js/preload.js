@@ -57,7 +57,39 @@ function startUrlEnforcer(desiredUrl) {
         }
     };
 
+    const normalizeUrlString = (url) => {
+        try {
+            return new URL(String(url), String(location.href)).toString();
+        } catch (_) {
+            return '';
+        }
+    };
+
     const desiredPath = normalizePath(desiredUrl);
+    const driftPaths = new Set(['/protect/dashboard', '/protect/dashboard/all']);
+
+    const isDriftUrl = (url) => {
+        const p = normalizePath(url);
+        return !!p && driftPaths.has(p);
+    };
+
+    const trySoftNavigate = () => {
+        try {
+            history.replaceState(history.state, '', desiredUrl);
+            dispatchEvent(new PopStateEvent('popstate'));
+            return true;
+        } catch (_) {
+            return false;
+        }
+    };
+
+    const hardNavigate = () => {
+        try {
+            location.replace(desiredUrl);
+        } catch (_) {
+        }
+    };
+
     const enforce = () => {
         try {
             if (checkUrl('index.html') || checkUrl('config.html') || checkUrl('login'))
@@ -70,9 +102,19 @@ function startUrlEnforcer(desiredUrl) {
             if (currentPath === desiredPath)
                 return;
 
-            if (currentPath === '/protect/dashboard' || currentPath === '/protect/dashboard/all') {
-                location.replace(desiredUrl);
-                return;
+            if (driftPaths.has(currentPath)) {
+                const ok = trySoftNavigate();
+                if (!ok)
+                    hardNavigate();
+
+                setTimeout(() => {
+                    try {
+                        const after = normalizePath(location.href);
+                        if (driftPaths.has(after))
+                            hardNavigate();
+                    } catch (_) {
+                    }
+                }, 1500);
             }
         } catch (_) {
         }
@@ -81,6 +123,14 @@ function startUrlEnforcer(desiredUrl) {
     try {
         const push = history.pushState;
         history.pushState = function () {
+            try {
+                const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
+                if (urlArg && isDriftUrl(urlArg)) {
+                    arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
+                }
+            } catch (_) {
+            }
+
             const r = push.apply(this, arguments);
             setTimeout(enforce, 0);
             return r;
@@ -88,6 +138,14 @@ function startUrlEnforcer(desiredUrl) {
 
         const replace = history.replaceState;
         history.replaceState = function () {
+            try {
+                const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
+                if (urlArg && isDriftUrl(urlArg)) {
+                    arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
+                }
+            } catch (_) {
+            }
+
             const r = replace.apply(this, arguments);
             setTimeout(enforce, 0);
             return r;
@@ -100,7 +158,7 @@ function startUrlEnforcer(desiredUrl) {
     } catch (_) {
     }
 
-    setInterval(enforce, 30_000);
+    setInterval(enforce, 5_000);
     setTimeout(enforce, 0);
 }
 
