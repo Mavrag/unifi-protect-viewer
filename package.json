@@ -34,7 +34,7 @@
   "license": "",
   "devDependencies": {
     "electron": "38.7.2",
-    "electron-packager": "17.1.2",
+    "@electron/packager": "19.0.1",
     "electron-reloader": "1.2.3"
   },
   "dependencies": {
