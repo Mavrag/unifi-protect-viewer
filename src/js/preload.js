@@ -40,6 +40,71 @@ function ensureUpvStyle() {
 }
 
 
+function startUrlEnforcer(desiredUrl) {
+    if (!desiredUrl)
+        return;
+
+    if (window.__upvUrlEnforcerStarted)
+        return;
+    window.__upvUrlEnforcerStarted = true;
+
+    const normalizePath = (url) => {
+        try {
+            const u = new URL(String(url), String(location.href));
+            return (u.pathname || '').replace(/\/+$/, '');
+        } catch (_) {
+            return '';
+        }
+    };
+
+    const desiredPath = normalizePath(desiredUrl);
+    const enforce = () => {
+        try {
+            if (checkUrl('index.html') || checkUrl('config.html') || checkUrl('login'))
+                return;
+
+            const currentPath = normalizePath(location.href);
+            if (!currentPath)
+                return;
+
+            if (currentPath === desiredPath)
+                return;
+
+            if (currentPath === '/protect/dashboard') {
+                location.replace(desiredUrl);
+                return;
+            }
+        } catch (_) {
+        }
+    };
+
+    try {
+        const push = history.pushState;
+        history.pushState = function () {
+            const r = push.apply(this, arguments);
+            setTimeout(enforce, 0);
+            return r;
+        };
+
+        const replace = history.replaceState;
+        history.replaceState = function () {
+            const r = replace.apply(this, arguments);
+            setTimeout(enforce, 0);
+            return r;
+        };
+    } catch (_) {
+    }
+
+    try {
+        addEventListener('popstate', () => enforce());
+    } catch (_) {
+    }
+
+    setInterval(enforce, 30_000);
+    setTimeout(enforce, 0);
+}
+
+
 function collectVideoStats() {
     const videos = Array.from(document.querySelectorAll('video'));
     return {
@@ -268,6 +333,8 @@ async function run() {
         return;
 
     ensureUpvStyle();
+
+    startUrlEnforcer(desiredUrl);
 
     if (desiredUrl && !checkUrl(desiredUrl) && !checkUrl('login?redirect')) {
         console.log('redirect', desiredUrl);
