@@ -1,12 +1,11 @@
 // Modules to control application life and create native browser window
 const {app, BrowserWindow, ipcMain} = require('electron');
 const path = require('node:path');
-const fs = require('node:fs');
-const Store = require('electron-store');
 
 const { createLogger } = require('./src/main/logging');
 const { createWatchdog } = require('./src/main/watchdog');
 const { createWindowsManager } = require('./src/main/windows');
+const { createStore } = require('./src/main/store');
 
 
 
@@ -24,12 +23,11 @@ const portable = false;
 const portableStoreCwd = path.join(process.resourcesPath, 'store');
 const encryptionKey = '****';
 
-// persistent store
-if (portable && !fs.existsSync(portableStoreCwd)) {
-  fs.mkdirSync(portableStoreCwd);
-}
-
-const store = portable ? new Store({ name: 'storage', fileExtension: 'db', cwd: portableStoreCwd, encryptionKey: encryptionKey }) : new Store();
+const store = createStore({
+  portable,
+  portableStoreCwd,
+  encryptionKey,
+});
 
 const viewerWindows = new Map();
 const viewerHealth = new Map();
