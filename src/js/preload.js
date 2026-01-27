@@ -70,7 +70,7 @@ function startUrlEnforcer(desiredUrl) {
             if (currentPath === desiredPath)
                 return;
 
-            if (currentPath === '/protect/dashboard') {
+            if (currentPath === '/protect/dashboard' || currentPath === '/protect/dashboard/all') {
                 location.replace(desiredUrl);
                 return;
             }
