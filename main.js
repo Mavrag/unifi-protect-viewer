@@ -70,6 +70,33 @@ function logEvent(level, msg, meta = undefined) {
   } catch (_) {}
 }
 
+function handleViewerEvent(event, payload) {
+  try {
+    const idx = Number(payload?.screenIndex);
+    const type = String(payload?.type || '');
+
+    if (!type) return;
+
+    const atMs = Number(payload?.atMs ?? payload?.at);
+    const atIso = payload?.atIso
+      ? String(payload.atIso)
+      : (Number.isFinite(atMs) ? new Date(atMs).toISOString() : undefined);
+
+    const meta = {
+      screenIndex: Number.isFinite(idx) ? idx : undefined,
+      type,
+      atMs: Number.isFinite(atMs) ? atMs : Date.now(),
+      atIso,
+      fromPath: payload?.fromPath ? String(payload.fromPath) : undefined,
+      toPath: payload?.toPath ? String(payload.toPath) : undefined,
+      note: payload?.note ? String(payload.note) : undefined,
+    };
+
+    logEvent('INFO', 'Viewer event', meta);
+  } catch (_) {
+  }
+}
+
 function hardRelaunch(reason, meta = undefined) {
   if (isQuitting) return;
   const now = Date.now();
@@ -415,6 +442,7 @@ app.whenReady().then(async () => {
   ipcMain.on('restart', handleRestart);
   ipcMain.on('configSave', handleConfigSave);
   ipcMain.on('viewerHealth', handleViewerHealth);
+  ipcMain.on('viewerEvent', handleViewerEvent);
 
   ipcMain.handle('configLoad', handleConfigLoad)
 

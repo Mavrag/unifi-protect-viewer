@@ -1,6 +1,31 @@
 const {contextBridge, ipcRenderer} = require('electron')
 
 
+function sendViewerEvent(type, meta = undefined) {
+    try {
+        const screenIndex = getScreenIndexFromArgs();
+        const key = `${screenIndex}:${type}`;
+
+        const last = (window.__upvEventLastSent || {})[key] || 0;
+        const now = Date.now();
+        if (now - last < 10_000)
+            return;
+
+        window.__upvEventLastSent = window.__upvEventLastSent || {};
+        window.__upvEventLastSent[key] = now;
+
+        ipcRenderer.send('viewerEvent', {
+            screenIndex,
+            type,
+            atMs: now,
+            atIso: new Date(now).toISOString(),
+            ...(meta || {}),
+        });
+    } catch (_) {
+    }
+}
+
+
 function getScreenIndexFromArgs() {
     const arg = (process?.argv || []).find(a => typeof a === 'string' && a.startsWith('--upv-screen='));
     if (!arg)
@@ -47,6 +72,8 @@ function startUrlEnforcer(desiredUrl) {
     if (window.__upvUrlEnforcerStarted)
         return;
     window.__upvUrlEnforcerStarted = true;
+
+    sendViewerEvent('url_enforcer_started', { toPath: String(desiredUrl || '') });
 
     const normalizePath = (url) => {
         try {
@@ -103,9 +130,12 @@ function startUrlEnforcer(desiredUrl) {
                 return;
 
             if (driftPaths.has(currentPath)) {
+                sendViewerEvent('dashboard_drift_detected', { fromPath: currentPath, toPath: desiredPath });
                 const ok = trySoftNavigate();
                 if (!ok)
                     hardNavigate();
+
+                sendViewerEvent(ok ? 'dashboard_drift_soft_correct' : 'dashboard_drift_hard_correct', { fromPath: currentPath, toPath: desiredPath });
 
                 setTimeout(() => {
                     try {
@@ -127,6 +157,7 @@ function startUrlEnforcer(desiredUrl) {
                 const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
                 if (urlArg && isDriftUrl(urlArg)) {
                     arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
+                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'pushState' });
                 }
             } catch (_) {
             }
@@ -142,6 +173,7 @@ function startUrlEnforcer(desiredUrl) {
                 const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
                 if (urlArg && isDriftUrl(urlArg)) {
                     arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
+                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'replaceState' });
                 }
             } catch (_) {
             }
