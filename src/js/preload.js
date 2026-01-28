@@ -86,8 +86,20 @@ function startUrlEnforcer(desiredUrl) {
 
     const diag = () => {
         try {
+            let navType;
+            let redirectCount;
+            try {
+                const nav = performance?.getEntriesByType ? performance.getEntriesByType('navigation')[0] : undefined;
+                navType = nav?.type ? String(nav.type) : undefined;
+                redirectCount = typeof nav?.redirectCount === 'number' ? nav.redirectCount : undefined;
+            } catch (_) {
+            }
+
             return {
                 href: String(location?.href || ''),
+                referrer: String(document?.referrer || ''),
+                navType,
+                redirectCount,
                 visibilityState: String(document?.visibilityState || ''),
                 hasFocus: typeof document?.hasFocus === 'function' ? !!document.hasFocus() : undefined,
             };
@@ -203,6 +215,42 @@ function startUrlEnforcer(desiredUrl) {
             setTimeout(enforce, 0);
             return r;
         };
+    } catch (_) {
+    }
+
+    try {
+        const originalAssign = location.assign?.bind(location);
+        if (typeof originalAssign === 'function') {
+            location.assign = function (url) {
+                try {
+                    if (isDriftUrl(url)) {
+                        sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(url), toPath: desiredPath, note: 'location.assign', stack: new Error().stack, ...diag() });
+                        return originalAssign(desiredUrl);
+                    }
+                    return originalAssign(url);
+                } catch (_) {
+                    return originalAssign(url);
+                }
+            };
+        }
+    } catch (_) {
+    }
+
+    try {
+        const originalReplace = location.replace?.bind(location);
+        if (typeof originalReplace === 'function') {
+            location.replace = function (url) {
+                try {
+                    if (isDriftUrl(url)) {
+                        sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(url), toPath: desiredPath, note: 'location.replace', stack: new Error().stack, ...diag() });
+                        return originalReplace(desiredUrl);
+                    }
+                    return originalReplace(url);
+                } catch (_) {
+                    return originalReplace(url);
+                }
+            };
+        }
     } catch (_) {
     }
 
