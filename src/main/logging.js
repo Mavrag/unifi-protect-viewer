@@ -53,6 +53,10 @@ function createLogger(app) {
         fromPath: payload?.fromPath ? String(payload.fromPath) : undefined,
         toPath: payload?.toPath ? String(payload.toPath) : undefined,
         note: payload?.note ? String(payload.note) : undefined,
+        href: payload?.href ? String(payload.href) : undefined,
+        visibilityState: payload?.visibilityState ? String(payload.visibilityState) : undefined,
+        hasFocus: typeof payload?.hasFocus === 'boolean' ? payload.hasFocus : undefined,
+        stack: payload?.stack ? String(payload.stack).slice(0, 1200) : undefined,
       };
 
       logEvent('INFO', 'Viewer event', meta);

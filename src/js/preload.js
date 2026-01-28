@@ -44,6 +44,15 @@ function getDesiredUrl(config) {
     return url;
 }
 
+(async () => {
+    try {
+        const config = await ipcRenderer.invoke('configLoad');
+        const desiredUrl = getDesiredUrl(config);
+        startUrlEnforcer(desiredUrl);
+    } catch (_) {
+    }
+})();
+
 
 function ensureUpvStyle() {
     const id = 'upv-style';
@@ -74,6 +83,18 @@ function startUrlEnforcer(desiredUrl) {
     window.__upvUrlEnforcerStarted = true;
 
     sendViewerEvent('url_enforcer_started', { toPath: String(desiredUrl || '') });
+
+    const diag = () => {
+        try {
+            return {
+                href: String(location?.href || ''),
+                visibilityState: String(document?.visibilityState || ''),
+                hasFocus: typeof document?.hasFocus === 'function' ? !!document.hasFocus() : undefined,
+            };
+        } catch (_) {
+            return {};
+        }
+    };
 
     const normalizePath = (url) => {
         try {
@@ -130,12 +151,12 @@ function startUrlEnforcer(desiredUrl) {
                 return;
 
             if (driftPaths.has(currentPath)) {
-                sendViewerEvent('dashboard_drift_detected', { fromPath: currentPath, toPath: desiredPath });
+                sendViewerEvent('dashboard_drift_detected', { fromPath: currentPath, toPath: desiredPath, ...diag() });
                 const ok = trySoftNavigate();
                 if (!ok)
                     hardNavigate();
 
-                sendViewerEvent(ok ? 'dashboard_drift_soft_correct' : 'dashboard_drift_hard_correct', { fromPath: currentPath, toPath: desiredPath });
+                sendViewerEvent(ok ? 'dashboard_drift_soft_correct' : 'dashboard_drift_hard_correct', { fromPath: currentPath, toPath: desiredPath, ...diag() });
 
                 setTimeout(() => {
                     try {
@@ -157,7 +178,7 @@ function startUrlEnforcer(desiredUrl) {
                 const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
                 if (urlArg && isDriftUrl(urlArg)) {
                     arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
-                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'pushState' });
+                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'pushState', stack: new Error().stack, ...diag() });
                 }
             } catch (_) {
             }
@@ -173,7 +194,7 @@ function startUrlEnforcer(desiredUrl) {
                 const urlArg = arguments.length >= 3 ? arguments[2] : undefined;
                 if (urlArg && isDriftUrl(urlArg)) {
                     arguments[2] = normalizeUrlString(desiredUrl) || desiredUrl;
-                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'replaceState' });
+                    sendViewerEvent('dashboard_drift_prevented', { fromPath: normalizePath(urlArg), toPath: desiredPath, note: 'replaceState', stack: new Error().stack, ...diag() });
                 }
             } catch (_) {
             }
