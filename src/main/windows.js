@@ -37,6 +37,141 @@ function createWindowsManager({
     return { config, screens, screensConfig };
   }
 
+  function getDesiredUrlForIndex(index = 0) {
+    try {
+      const { config, screensConfig } = getDesiredScreensConfig();
+      const perScreen = (Array.isArray(screensConfig) ? screensConfig[index] : undefined) || {};
+      return String((perScreen?.url || config?.url || '')).trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function attachNavigationGuards(win, index) {
+    const wc = win?.webContents;
+    if (!wc) return;
+
+    const normalizePath = (u) => {
+      try {
+        const url = new URL(String(u));
+        return String(url.pathname || '').replace(/\/+$/, '');
+      } catch (_) {
+        return '';
+      }
+    };
+
+    const isDriftPath = (p) => p === '/protect/dashboard/all' || p === '/protect/dashboard';
+
+    const getDesired = () => {
+      const desiredUrl = getDesiredUrlForIndex(index);
+      const desiredPath = normalizePath(desiredUrl);
+      return { desiredUrl, desiredPath };
+    };
+
+    const throttleOk = () => {
+      try {
+        const now = Date.now();
+        const last = Number(wc.__upvLastDriftFixAt || 0);
+        if (now - last < 1500) return false;
+        wc.__upvLastDriftFixAt = now;
+        return true;
+      } catch (_) {
+        return true;
+      }
+    };
+
+    const softCorrect = (reason, url) => {
+      const { desiredUrl, desiredPath } = getDesired();
+      if (!desiredUrl || !desiredPath) return;
+
+      const fromUrl = (() => {
+        try { return String(wc.getURL() || ''); } catch (_) { return ''; }
+      })();
+
+      if (!throttleOk()) return;
+
+      try {
+        logEvent('WARN', 'Dashboard drift', {
+          index,
+          reason,
+          fromPath: normalizePath(fromUrl),
+          toPath: normalizePath(url),
+          desiredPath,
+        });
+      } catch (_) {
+      }
+
+      try {
+        wc.executeJavaScript(
+          `try{history.replaceState(history.state,'',${JSON.stringify(desiredUrl)});dispatchEvent(new PopStateEvent('popstate'));}catch(_){}`,
+          true
+        ).catch(() => {});
+      } catch (_) {
+      }
+
+      setTimeout(() => {
+        try {
+          const cur = normalizePath(wc.getURL());
+          if (isDriftPath(cur)) {
+            wc.loadURL(desiredUrl, { userAgent }).catch(() => {});
+          }
+        } catch (_) {
+        }
+      }, 250);
+    };
+
+    const handleTarget = (event, url, reason, canPrevent) => {
+      try {
+        const { desiredUrl, desiredPath } = getDesired();
+        if (!desiredUrl || !desiredPath) return;
+
+        const targetPath = normalizePath(url);
+        if (!isDriftPath(targetPath)) return;
+        if (targetPath === desiredPath) return;
+
+        if (canPrevent && event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+          if (!throttleOk()) return;
+          try {
+            logEvent('WARN', 'Dashboard drift prevented', {
+              index,
+              reason,
+              toPath: targetPath,
+              desiredPath,
+            });
+          } catch (_) {
+          }
+          try {
+            wc.loadURL(desiredUrl, { userAgent }).catch(() => {});
+          } catch (_) {
+          }
+          return;
+        }
+
+        softCorrect(reason, url);
+      } catch (_) {
+      }
+    };
+
+    try {
+      wc.on('will-navigate', (event, url) => handleTarget(event, url, 'will-navigate', true));
+    } catch (_) {
+    }
+
+    try {
+      wc.on('will-redirect', (event, url) => handleTarget(event, url, 'will-redirect', true));
+    } catch (_) {
+    }
+
+    try {
+      wc.on('did-navigate-in-page', (event, url, isMainFrame) => {
+        if (!isMainFrame) return;
+        handleTarget(event, url, 'did-navigate-in-page', false);
+      });
+    } catch (_) {
+    }
+  }
+
   async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true) {
     if (store.has('config') && (urlOverride || store.get('config')?.url)) {
       mainWindow.loadFile('./src/html/index.html').catch(() => {});
@@ -131,6 +266,8 @@ function createWindowsManager({
     if (state?.isMaximized || (!state?.bounds && maximizeHint)) {
       mainWindow.maximize();
     }
+
+    attachNavigationGuards(mainWindow, index);
 
     mainWindow.setTitle(`UnifiProtect Viewer${titleSuffix ? ` - ${titleSuffix}` : ''}`);
 
