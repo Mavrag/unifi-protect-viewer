@@ -237,6 +237,9 @@ function createWindowsManager({
   async function createViewerWindow(urlOverride = undefined, index = 0, allowConfigFallback = true, titleSuffix = '', maximizeHint = false) {
     const state = getWindowState(index);
 
+    const desiredUrlForPreload = String(urlOverride || getDesiredUrlForIndex(index) || '').trim();
+    const desiredUrlArg = desiredUrlForPreload ? encodeURIComponent(desiredUrlForPreload) : '';
+
     const mainWindow = new BrowserWindow({
       width: state?.bounds?.width || defaultWidth,
       height: state?.bounds?.height || defaultHeight,
@@ -247,7 +250,7 @@ function createWindowsManager({
         nodeIntegration: false,
         spellcheck: true,
         preload: preloadPath,
-        additionalArguments: [`--upv-screen=${index}`],
+        additionalArguments: [`--upv-screen=${index}`, `--upv-url=${desiredUrlArg}`],
         backgroundThrottling: false,
         allowDisplayingInsecureContent: true,
         allowRunningInsecureContent: true
@@ -294,11 +297,46 @@ function createWindowsManager({
       tryReloadViewerWindow(index);
     });
 
-    mainWindow.webContents.on('render-process-gone', () => {
+    mainWindow.webContents.on('render-process-gone', (_, details) => {
       if (isQuitting()) return;
       const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
       if (typeof noteRecovery === 'function') noteRecovery(index, 'render_process_gone');
+      try {
+        logEvent('WARN', 'Render process gone', {
+          index,
+          reason: details?.reason,
+          exitCode: details?.exitCode,
+        });
+      } catch (_) {
+      }
       recreateViewerWindow(index, 'render-gone').catch(() => {});
+    });
+
+    mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      if (isQuitting()) return;
+
+      try {
+        logEvent('WARN', 'did-fail-load', {
+          index,
+          errorCode,
+          errorDescription,
+          url: String(validatedURL || ''),
+        });
+      } catch (_) {
+      }
+
+      try {
+        const now = Date.now();
+        const last = Number(mainWindow.webContents.__upvLastFailLoadFixAt || 0);
+        if (now - last < 1500) return;
+        mainWindow.webContents.__upvLastFailLoadFixAt = now;
+      } catch (_) {
+      }
+
+      const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
+      if (typeof noteRecovery === 'function') noteRecovery(index, 'did_fail_load');
+      setTimeout(() => tryReloadViewerWindow(index), 250);
     });
 
     mainWindow.on('closed', () => {

@@ -34,6 +34,20 @@ function getScreenIndexFromArgs() {
     return Number.isFinite(n) ? n : 0;
 }
 
+function getDesiredUrlFromArgs() {
+    const arg = (process?.argv || []).find(a => typeof a === 'string' && a.startsWith('--upv-url='));
+    if (!arg)
+        return '';
+    const raw = arg.slice('--upv-url='.length);
+    if (!raw)
+        return '';
+    try {
+        return decodeURIComponent(raw);
+    } catch (_) {
+        return raw;
+    }
+}
+
 
 function getDesiredUrl(config) {
     const screenIndex = getScreenIndexFromArgs();
@@ -42,6 +56,13 @@ function getDesiredUrl(config) {
     const perScreen = list[screenIndex];
     const url = (perScreen?.url || config?.url || '').trim();
     return url;
+}
+
+try {
+    const desiredUrlFromArgs = getDesiredUrlFromArgs();
+    if (desiredUrlFromArgs)
+        startUrlEnforcer(desiredUrlFromArgs);
+} catch (_) {
 }
 
 (async () => {

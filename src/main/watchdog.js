@@ -91,6 +91,18 @@ function createWatchdog({
         const lastRecoverAt = health?.lastRecoverAt || 0;
         const allowRecover = (now - lastRecoverAt) > RECOVER_COOLDOWN_MS;
 
+        let currentUrl = '';
+        try {
+          currentUrl = String(win.webContents.getURL() || '');
+        } catch (_) {
+        }
+
+        if (allowRecover && (currentUrl.startsWith('about:blank') || currentUrl.startsWith('chrome-error://'))) {
+          noteRecovery(i, 'blank_or_error_url');
+          tryReloadViewerWindow(i);
+          continue;
+        }
+
         if (health?.lastSeenAt && (now - health.lastSeenAt) > HEALTH_TIMEOUT_MS) {
           if (allowRecover) {
             noteRecovery(i, 'heartbeat_timeout');
