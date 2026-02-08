@@ -514,8 +514,6 @@ async function run() {
 
     ensureUpvStyle();
 
-    startUrlEnforcer(desiredUrl);
-
     if (desiredUrl && !checkUrl(desiredUrl) && !checkUrl('login?redirect')) {
         console.log('redirect', desiredUrl);
         window.location.href = desiredUrl;
@@ -569,9 +567,10 @@ async function run() {
         await handleLiveviewV3();
     }
 
-    // unifi stuff - fullscreen for dashboard (version 4)
-    if (checkUrl('protect/dashboard') && version.startsWith('4.') || version.startsWith('5.') || version.startsWith('6.')) {
-        console.log('run logic v4/v5/v6',);
+    // unifi stuff - fullscreen for dashboard (version 4+)
+    const majorVersion = parseInt(version, 10);
+    if (checkUrl('protect/dashboard') && Number.isFinite(majorVersion) && majorVersion >= 4) {
+        console.log('run logic v' + majorVersion);
 
         await handleLiveviewV4andNewer();
 

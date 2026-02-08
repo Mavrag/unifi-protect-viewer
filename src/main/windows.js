@@ -251,7 +251,7 @@ function createWindowsManager({
       fullscreen: state?.isFullScreen || false,
       webPreferences: {
         nodeIntegration: false,
-        spellcheck: true,
+        spellcheck: false,
         preload: preloadPath,
         additionalArguments: [`--upv-screen=${index}`, `--upv-url=${desiredUrlArg}`],
         backgroundThrottling: false,
@@ -282,12 +282,17 @@ function createWindowsManager({
     });
 
     const persistState = () => saveWindowState(index, mainWindow);
+    let persistTimer;
+    const persistDebounced = () => {
+      clearTimeout(persistTimer);
+      persistTimer = setTimeout(persistState, 500);
+    };
 
     mainWindow.on("close", persistState);
     mainWindow.on("enter-full-screen", persistState);
     mainWindow.on("leave-full-screen", persistState);
-    mainWindow.on("resize", persistState);
-    mainWindow.on("move", persistState);
+    mainWindow.on("resize", persistDebounced);
+    mainWindow.on("move", persistDebounced);
 
     await handleWindow(mainWindow, urlOverride, allowConfigFallback);
 

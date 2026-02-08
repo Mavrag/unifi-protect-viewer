@@ -10,7 +10,7 @@ const { createStore } = require('./src/main/store');
 
 
 // some const
-const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36';
+const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
 const defaultWidth = 1270;
 const defaultHeight = 750;
 
@@ -119,8 +119,8 @@ function handleReset() {
 }
 
 function handleRestart() {
-  app.quit();
   app.relaunch();
+  app.quit();
 }
 
 async function handleConfigLoad() {

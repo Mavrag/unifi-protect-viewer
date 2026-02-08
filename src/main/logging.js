@@ -1,6 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const LOG_MAX_BYTES = 5 * 1024 * 1024;
+let logWriteCount = 0;
+
 function createLogger(app) {
   let logFilePath;
   const viewerEventLastLogged = new Map();
@@ -31,6 +34,18 @@ function createLogger(app) {
       const p = ensureLogFilePath();
       if (!p) return;
       fs.appendFile(p, `${line}\n`, () => {});
+
+      logWriteCount++;
+      if (logWriteCount % 100 === 0) {
+        try {
+          const stat = fs.statSync(p);
+          if (stat.size > LOG_MAX_BYTES) {
+            const oldPath = p + '.old';
+            try { fs.unlinkSync(oldPath); } catch (_) {}
+            fs.renameSync(p, oldPath);
+          }
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
