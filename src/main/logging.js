@@ -3,6 +3,7 @@ const path = require('node:path');
 
 function createLogger(app) {
   let logFilePath;
+  const viewerEventLastLogged = new Map();
 
   function ensureLogFilePath() {
     if (logFilePath) return logFilePath;
@@ -39,6 +40,16 @@ function createLogger(app) {
       const type = String(payload?.type || '');
 
       if (!type) return;
+
+      try {
+        const now = Date.now();
+        const key = `${Number.isFinite(idx) ? idx : 'na'}:${type}`;
+        const last = Number(viewerEventLastLogged.get(key) || 0);
+        const minGapMs = type === 'url_enforcer_started' ? 60_000 : 0;
+        if (minGapMs && now - last < minGapMs) return;
+        viewerEventLastLogged.set(key, now);
+      } catch (_) {
+      }
 
       const atMs = Number(payload?.atMs ?? payload?.at);
       const atIso = payload?.atIso

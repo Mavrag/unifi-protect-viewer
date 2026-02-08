@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Unifi Protect Viewer - Offline</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: #0b1220;
+      color: #e5e7eb;
+    }
+    .wrap {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      max-width: 720px;
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      padding: 22px;
+      box-sizing: border-box;
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 650;
+      margin: 0 0 10px 0;
+    }
+    .sub {
+      opacity: 0.9;
+      margin: 0 0 18px 0;
+      line-height: 1.4;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 8px 12px;
+      font-size: 14px;
+      opacity: 0.95;
+      margin: 14px 0 18px 0;
+      word-break: break-word;
+    }
+    .k { opacity: 0.75; }
+    .v { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    button {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.08);
+      color: #e5e7eb;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(255,255,255,0.12); }
+    .hint {
+      margin-top: 12px;
+      font-size: 13px;
+      opacity: 0.75;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title">Viewer is offline</h1>
+      <p class="sub">The UniFi Protect server is not reachable right now. The viewer will keep retrying automatically and should recover without a restart.</p>
+
+      <div class="kv">
+        <div class="k">Screen</div><div class="v" id="screen">?</div>
+        <div class="k">Target URL</div><div class="v" id="url">?</div>
+        <div class="k">Error</div><div class="v" id="err">?</div>
+        <div class="k">Attempt</div><div class="v" id="attempt">?</div>
+        <div class="k">Last update</div><div class="v" id="ts">?</div>
+      </div>
+
+      <div class="row">
+        <button id="retry">Retry now</button>
+        <button id="reload">Reload page</button>
+      </div>
+
+      <div class="hint">
+        If this persists, check network connectivity and whether UniFi Protect is running.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search || '');
+    const screen = qs.get('screen') || '?';
+    const url = qs.get('url') || '';
+    const errorCode = qs.get('errorCode') || '';
+    const errorDescription = qs.get('errorDescription') || '';
+    const attempt = qs.get('attempt') || '';
+
+    document.getElementById('screen').textContent = screen;
+    document.getElementById('url').textContent = url || '?';
+    document.getElementById('err').textContent = (errorCode || errorDescription) ? `${errorCode}${errorCode && errorDescription ? ' ' : ''}${errorDescription}` : '?';
+    document.getElementById('attempt').textContent = attempt || '?';
+    document.getElementById('ts').textContent = new Date().toISOString();
+
+    document.getElementById('retry').addEventListener('click', () => {
+      if (url) location.href = url;
+    });
+
+    document.getElementById('reload').addEventListener('click', () => {
+      location.reload();
+    });
+
+    setInterval(() => {
+      document.getElementById('ts').textContent = new Date().toISOString();
+    }, 1000);
+  </script>
+</body>
+</html>

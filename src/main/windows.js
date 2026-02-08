@@ -1,8 +1,11 @@
+const { pathToFileURL } = require('node:url');
+
 function createWindowsManager({
   BrowserWindow,
   store,
   viewerWindows,
   portable,
+  path,
   defaultWidth,
   defaultHeight,
   userAgent,
@@ -316,20 +319,80 @@ function createWindowsManager({
       if (!isMainFrame) return;
       if (isQuitting()) return;
 
+      const now = Date.now();
       try {
-        logEvent('WARN', 'did-fail-load', {
-          index,
-          errorCode,
-          errorDescription,
-          url: String(validatedURL || ''),
-        });
+        const lastLog = Number(mainWindow.webContents.__upvLastDidFailLoadLogAt || 0);
+        if (now - lastLog > 2_000) {
+          mainWindow.webContents.__upvLastDidFailLoadLogAt = now;
+          logEvent('WARN', 'did-fail-load', {
+            index,
+            errorCode,
+            errorDescription,
+            url: String(validatedURL || ''),
+          });
+        }
       } catch (_) {
       }
 
+      const isNetworkError = errorCode === -102 || errorCode === -105 || errorCode === -106 || errorCode === -2;
+      if (isNetworkError) {
+        try {
+          const desiredUrl = getDesiredUrlForIndex(index);
+          const attempt = Number(mainWindow.webContents.__upvNetFailCount || 0) + 1;
+          mainWindow.webContents.__upvNetFailCount = attempt;
+
+          try {
+            const lastOfflineAt = Number(mainWindow.webContents.__upvLastOfflineAt || 0);
+            if (now - lastOfflineAt > 3_000) {
+              mainWindow.webContents.__upvLastOfflineAt = now;
+              const offlinePath = path.join(__dirname, '..', 'html', 'offline.html');
+              const offlineBase = pathToFileURL(offlinePath).toString();
+              const offlineUrl = `${offlineBase}?screen=${encodeURIComponent(String(index))}`
+                + `&url=${encodeURIComponent(String(desiredUrl || ''))}`
+                + `&errorCode=${encodeURIComponent(String(errorCode))}`
+                + `&errorDescription=${encodeURIComponent(String(errorDescription || ''))}`
+                + `&attempt=${encodeURIComponent(String(attempt))}`;
+
+              mainWindow.webContents.loadURL(offlineUrl).catch(() => {});
+            }
+          } catch (_) {
+          }
+
+          if (mainWindow.webContents.__upvNetFailTimer) return;
+
+          const delayMs = Math.min(60_000, Math.max(5_000, 1000 * (2 ** Math.min(6, attempt))));
+          mainWindow.webContents.__upvNetFailTimer = setTimeout(() => {
+            try {
+              mainWindow.webContents.__upvNetFailTimer = undefined;
+              if (isQuitting()) return;
+              if (!desiredUrl) return;
+              mainWindow.webContents.loadURL(desiredUrl, { userAgent }).catch(() => {});
+            } catch (_) {
+            }
+          }, delayMs);
+
+          try {
+            const lastRetryLog = Number(mainWindow.webContents.__upvLastNetFailRetryLogAt || 0);
+            if (now - lastRetryLog > 5_000) {
+              mainWindow.webContents.__upvLastNetFailRetryLogAt = now;
+              logEvent('WARN', 'Network load failed; retry scheduled', {
+                index,
+                errorCode,
+                errorDescription,
+                delayMs,
+              });
+            }
+          } catch (_) {
+          }
+        } catch (_) {
+        }
+
+        return;
+      }
+
       try {
-        const now = Date.now();
-        const last = Number(mainWindow.webContents.__upvLastFailLoadFixAt || 0);
-        if (now - last < 1500) return;
+        const lastFix = Number(mainWindow.webContents.__upvLastFailLoadFixAt || 0);
+        if (now - lastFix < 1500) return;
         mainWindow.webContents.__upvLastFailLoadFixAt = now;
       } catch (_) {
       }
@@ -337,6 +400,22 @@ function createWindowsManager({
       const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
       if (typeof noteRecovery === 'function') noteRecovery(index, 'did_fail_load');
       setTimeout(() => tryReloadViewerWindow(index), 250);
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      try {
+        const desiredUrl = getDesiredUrlForIndex(index);
+        const desiredOrigin = (() => {
+          try { return new URL(String(desiredUrl)).origin; } catch (_) { return ''; }
+        })();
+        if (!desiredOrigin) return;
+        const cur = String(mainWindow.webContents.getURL() || '');
+        if (!cur.startsWith(desiredOrigin)) return;
+
+        mainWindow.webContents.__upvNetFailCount = 0;
+        mainWindow.webContents.__upvLastNetFailRetryLogAt = 0;
+      } catch (_) {
+      }
     });
 
     mainWindow.on('closed', () => {
