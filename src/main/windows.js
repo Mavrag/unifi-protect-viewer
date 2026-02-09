@@ -349,6 +349,7 @@ function createWindowsManager({
 
       icon: iconPath,
       backgroundColor: '#0b1220',
+      show: false,
 
       frame: true,
       movable: true,
@@ -362,6 +363,7 @@ function createWindowsManager({
       mainWindow.maximize();
     }
 
+    mainWindow.once('ready-to-show', () => mainWindow.show());
     mainWindow.loadFile('./src/html/index.html').catch(() => {});
 
     attachNavigationGuards(mainWindow, index);
