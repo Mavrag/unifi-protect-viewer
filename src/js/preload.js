@@ -344,11 +344,10 @@ const configSave = (config) => ipcRenderer.send('configSave', config);
 const configLoad = () => ipcRenderer.invoke('configLoad');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    reset: () => reset(),
-    restart: () => restart(),
-    configSave: (config) => configSave(config),
-
-    configLoad: () => configLoad(),
+    reset,
+    restart,
+    configSave,
+    configLoad,
 })
 
 
@@ -365,11 +364,7 @@ async function handleLogin() {
     clickElement(document.getElementsByTagName('button')[0]);
 }
 
-async function handleLiveviewV2() {
-    // wait until liveview is present
-    await waitUntil(() => document.querySelectorAll("[class^=liveview__ViewportsWrapper]").length > 0);
-
-    // close all modals if needed
+async function closeModals() {
     if (hasElements(document.getElementsByClassName('ReactModalPortal'))) {
         Array.from(document.getElementsByClassName('ReactModalPortal')).forEach(modalPortal => {
             if (elementExists(modalPortal.getElementsByTagName('svg'), 0)) {
@@ -378,8 +373,20 @@ async function handleLiveviewV2() {
         });
     }
 
-    // wait until modals are closed
-    await waitUntil(() => Array.from(document.getElementsByClassName('ReactModalPortal')).map(e => e.children.length === 0).filter(e => e === false).length === 0);
+    await waitUntil(() => Array.from(document.getElementsByClassName('ReactModalPortal')).every(e => e.children.length === 0));
+}
+
+function hideChrome() {
+    setStyle(document.getElementsByTagName('body')[0], 'background', 'black');
+    setStyle(document.getElementsByTagName('header')[0], 'display', 'none');
+    setStyle(document.getElementsByTagName('nav')[0], 'display', 'none');
+}
+
+async function handleLiveviewV2() {
+    // wait until liveview is present
+    await waitUntil(() => document.querySelectorAll("[class^=liveview__ViewportsWrapper]").length > 0);
+
+    await closeModals();
 
     setStyle(document.getElementsByTagName('header')[0], 'display', 'none');
     setStyle(document.getElementsByTagName('nav')[0], 'display', 'none');
@@ -391,21 +398,8 @@ async function handleLiveviewV3() {
     // wait until liveview is present
     await waitUntil(() => document.querySelectorAll("[class^=dashboard__LiveViewWrapper]").length > 0);
 
-    // close all modals if needed
-    if (hasElements(document.getElementsByClassName('ReactModalPortal'))) {
-        Array.from(document.getElementsByClassName('ReactModalPortal')).forEach(modalPortal => {
-            if (elementExists(modalPortal.getElementsByTagName('svg'), 0)) {
-                clickElement(modalPortal.getElementsByTagName('svg')[0]);
-            }
-        });
-    }
-
-    // wait until modals are closed
-    await waitUntil(() => Array.from(document.getElementsByClassName('ReactModalPortal')).map(e => e.children.length === 0).filter(e => e === false).length === 0);
-
-    setStyle(document.getElementsByTagName('body')[0], 'background', 'black');
-    setStyle(document.getElementsByTagName('header')[0], 'display', 'none');
-    setStyle(document.getElementsByTagName('nav')[0], 'display', 'none');
+    await closeModals();
+    hideChrome();
 
     // wait until widgets are present
     await waitUntil(() =>
@@ -444,21 +438,8 @@ async function handleLiveviewV4andNewer() {
     // wait until liveview is present
     await waitUntil(() => document.querySelectorAll("[class^=liveView__FullscreenWrapper]").length > 0);
 
-    // close all modals if needed
-    if (hasElements(document.getElementsByClassName('ReactModalPortal'))) {
-        Array.from(document.getElementsByClassName('ReactModalPortal')).forEach(modalPortal => {
-            if (elementExists(modalPortal.getElementsByTagName('svg'), 0)) {
-                clickElement(modalPortal.getElementsByTagName('svg')[0]);
-            }
-        });
-    }
-
-    // wait until modals are closed
-    await waitUntil(() => Array.from(document.getElementsByClassName('ReactModalPortal')).map(e => e.children.length === 0).filter(e => e === false).length === 0);
-
-    setStyle(document.getElementsByTagName('body')[0], 'background', 'black');
-    setStyle(document.getElementsByTagName('header')[0], 'display', 'none');
-    setStyle(document.getElementsByTagName('nav')[0], 'display', 'none');
+    await closeModals();
+    hideChrome();
 
     setStyle(document.querySelectorAll("[class^=dashboard__Widgets]")[0], 'display', 'none');
     setStyle(document.querySelectorAll("button[class^=dashboard__ExpandButton]")[0], 'display', 'none');
@@ -626,19 +607,15 @@ async function run() {
 
 
 // fnc stuff
-async function wait(amount) {
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve();
-        }, amount);
-    });
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function waitUntil(condition, timeout = 60000, interval = 100) {
     return new Promise((resolve) => {
         function complete(result) {
-            timeoutAd ? clearTimeout(timeoutAd) : {};
-            intervalAd ? clearInterval(intervalAd) : {};
+            if (timeoutAd) clearTimeout(timeoutAd);
+            if (intervalAd) clearInterval(intervalAd);
 
             setTimeout(() => {
                 resolve(result);

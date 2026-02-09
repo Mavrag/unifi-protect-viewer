@@ -134,6 +134,11 @@ function createWindowsManager({
     }
   }
 
+  function callNoteRecovery(index, reason) {
+    const fn = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
+    if (typeof fn === 'function') fn(index, reason);
+  }
+
   function attachNavigationGuards(win, index) {
     const wc = win?.webContents;
     if (!wc) return;
@@ -395,15 +400,13 @@ function createWindowsManager({
 
     mainWindow.on('unresponsive', () => {
       if (isQuitting()) return;
-      const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
-      if (typeof noteRecovery === 'function') noteRecovery(index, 'unresponsive');
+      callNoteRecovery(index, 'unresponsive');
       tryReloadViewerWindow(index);
     });
 
     mainWindow.webContents.on('render-process-gone', (_, details) => {
       if (isQuitting()) return;
-      const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
-      if (typeof noteRecovery === 'function') noteRecovery(index, 'render_process_gone');
+      callNoteRecovery(index, 'render_process_gone');
       try {
         logEvent('WARN', 'Render process gone', {
           index,
@@ -446,8 +449,7 @@ function createWindowsManager({
       } catch (_) {
       }
 
-      const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
-      if (typeof noteRecovery === 'function') noteRecovery(index, 'did_fail_load');
+      callNoteRecovery(index, 'did_fail_load');
       setTimeout(() => tryReloadViewerWindow(index), 250);
     });
 
@@ -470,8 +472,7 @@ function createWindowsManager({
     mainWindow.on('closed', () => {
       viewerWindows.delete(index);
       if (isQuitting()) return;
-      const noteRecovery = typeof getNoteRecovery === 'function' ? getNoteRecovery() : undefined;
-      if (typeof noteRecovery === 'function') noteRecovery(index, 'closed');
+      callNoteRecovery(index, 'closed');
       recreateViewerWindow(index, 'closed').catch(() => {});
     });
 
@@ -484,9 +485,7 @@ function createWindowsManager({
       return;
     }
 
-    const config = store.get('config');
-    const screens = Math.max(1, Math.min(Number(config?.screens ?? 1) || 1, 6));
-    const screensConfig = Array.isArray(config?.screensConfig) ? config.screensConfig : [];
+    const { screens, screensConfig } = getDesiredScreensConfig();
 
     for (let i = 0; i < screens; i++) {
       const titleSuffix = screens > 1 ? `Screen ${i + 1}` : '';

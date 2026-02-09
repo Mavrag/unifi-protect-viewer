@@ -93,7 +93,7 @@ function createLogger(app) {
     }
   }
 
-  return { ensureLogFilePath, logEvent, handleViewerEvent };
+  return { logEvent, handleViewerEvent };
 }
 
 module.exports = { createLogger };
