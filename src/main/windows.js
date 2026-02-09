@@ -363,7 +363,9 @@ function createWindowsManager({
       mainWindow.maximize();
     }
 
-    mainWindow.once('ready-to-show', () => mainWindow.show());
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (!mainWindow.isDestroyed()) mainWindow.show();
+    });
     mainWindow.loadFile('./src/html/index.html').catch(() => {});
 
     attachNavigationGuards(mainWindow, index);
