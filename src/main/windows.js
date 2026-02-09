@@ -40,6 +40,90 @@ function createWindowsManager({
     return { config, screens, screensConfig };
   }
 
+  const NETWORK_ERROR_CODES = new Set([
+    -2,    // ERR_FAILED
+    -7,    // ERR_TIMED_OUT
+    -21,   // ERR_NETWORK_CHANGED
+    -100,  // ERR_CONNECTION_CLOSED
+    -101,  // ERR_CONNECTION_RESET
+    -102,  // ERR_CONNECTION_REFUSED
+    -104,  // ERR_CONNECTION_FAILED
+    -105,  // ERR_NAME_NOT_RESOLVED
+    -106,  // ERR_INTERNET_DISCONNECTED
+    -109,  // ERR_ADDRESS_UNREACHABLE
+    -118,  // ERR_CONNECTION_TIMED_OUT
+    -137,  // ERR_NAME_RESOLUTION_FAILED
+  ]);
+
+  function isNetworkError(errorCode) {
+    return NETWORK_ERROR_CODES.has(errorCode);
+  }
+
+  function showOfflineAndRetry(mainWindow, index, errorCode, errorDescription) {
+    if (isQuitting()) return;
+    const wc = mainWindow?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+
+    const now = Date.now();
+    const desiredUrl = getDesiredUrlForIndex(index);
+    const attempt = Number(wc.__upvNetFailCount || 0) + 1;
+    wc.__upvNetFailCount = attempt;
+
+    // show offline page (throttle to avoid flicker)
+    try {
+      const lastOfflineAt = Number(wc.__upvLastOfflineAt || 0);
+      if (now - lastOfflineAt > 3_000) {
+        wc.__upvLastOfflineAt = now;
+        const offlinePath = path.join(__dirname, '..', 'html', 'offline.html');
+        const offlineBase = pathToFileURL(offlinePath).toString();
+        const offlineUrl = `${offlineBase}?screen=${encodeURIComponent(String(index))}`
+          + `&url=${encodeURIComponent(String(desiredUrl || ''))}`
+          + `&errorCode=${encodeURIComponent(String(errorCode))}`
+          + `&errorDescription=${encodeURIComponent(String(errorDescription || ''))}`
+          + `&attempt=${encodeURIComponent(String(attempt))}`;
+        wc.loadURL(offlineUrl).catch(() => {});
+      }
+    } catch (_) {
+    }
+
+    // skip if a retry is already scheduled or in-flight
+    if (wc.__upvNetFailTimer || wc.__upvRetryInFlight) return;
+
+    const delayMs = Math.min(60_000, Math.max(15_000, 2000 * (2 ** Math.min(5, attempt))));
+    wc.__upvNetFailTimer = setTimeout(async () => {
+      try {
+        wc.__upvNetFailTimer = undefined;
+        if (isQuitting()) return;
+        if (!desiredUrl) return;
+        if (wc.isDestroyed()) return;
+
+        wc.__upvRetryInFlight = true;
+        try {
+          await wc.loadURL(desiredUrl, { userAgent });
+        } finally {
+          wc.__upvRetryInFlight = false;
+        }
+      } catch (_) {
+        wc.__upvRetryInFlight = false;
+      }
+    }, delayMs);
+
+    try {
+      const lastRetryLog = Number(wc.__upvLastNetFailRetryLogAt || 0);
+      if (now - lastRetryLog > 10_000) {
+        wc.__upvLastNetFailRetryLogAt = now;
+        logEvent('WARN', 'Network load failed; retry scheduled', {
+          index,
+          errorCode,
+          errorDescription,
+          attempt,
+          delayMs,
+        });
+      }
+    } catch (_) {
+    }
+  }
+
   function getDesiredUrlForIndex(index = 0) {
     try {
       const { config, screensConfig } = getDesiredScreensConfig();
@@ -175,7 +259,7 @@ function createWindowsManager({
     }
   }
 
-  async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true) {
+  async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true, index = 0) {
     if (store.has('config') && (urlOverride || store.get('config')?.url)) {
       mainWindow.loadFile('./src/html/index.html').catch(() => {});
 
@@ -189,6 +273,12 @@ function createWindowsManager({
           return;
         }
         logEvent('WARN', 'loadURL failed', { message: msg });
+
+        // show offline page so the user sees something useful instead of black screen
+        const errorCode = parseInt(String(msg).match(/\((-?\d+)\)/)?.[1] || '0', 10);
+        if (isNetworkError(errorCode) || !mainWindow.webContents.getURL().startsWith('http')) {
+          showOfflineAndRetry(mainWindow, index, errorCode, msg);
+        }
       }
     } else if (allowConfigFallback) {
       await mainWindow.loadFile('./src/html/config.html');
@@ -295,7 +385,7 @@ function createWindowsManager({
     mainWindow.on("resize", persistDebounced);
     mainWindow.on("move", persistDebounced);
 
-    await handleWindow(mainWindow, urlOverride, allowConfigFallback);
+    await handleWindow(mainWindow, urlOverride, allowConfigFallback, index);
 
     viewerWindows.set(index, mainWindow);
 
@@ -340,69 +430,8 @@ function createWindowsManager({
       } catch (_) {
       }
 
-      const isNetworkError = errorCode === -2     // ERR_FAILED
-        || errorCode === -7                       // ERR_TIMED_OUT
-        || errorCode === -21                      // ERR_NETWORK_CHANGED
-        || errorCode === -100                     // ERR_CONNECTION_CLOSED
-        || errorCode === -101                     // ERR_CONNECTION_RESET
-        || errorCode === -102                     // ERR_CONNECTION_REFUSED
-        || errorCode === -104                     // ERR_CONNECTION_FAILED
-        || errorCode === -105                     // ERR_NAME_NOT_RESOLVED
-        || errorCode === -106                     // ERR_INTERNET_DISCONNECTED
-        || errorCode === -109                     // ERR_ADDRESS_UNREACHABLE
-        || errorCode === -118;                    // ERR_CONNECTION_TIMED_OUT
-      if (isNetworkError) {
-        try {
-          const desiredUrl = getDesiredUrlForIndex(index);
-          const attempt = Number(mainWindow.webContents.__upvNetFailCount || 0) + 1;
-          mainWindow.webContents.__upvNetFailCount = attempt;
-
-          try {
-            const lastOfflineAt = Number(mainWindow.webContents.__upvLastOfflineAt || 0);
-            if (now - lastOfflineAt > 3_000) {
-              mainWindow.webContents.__upvLastOfflineAt = now;
-              const offlinePath = path.join(__dirname, '..', 'html', 'offline.html');
-              const offlineBase = pathToFileURL(offlinePath).toString();
-              const offlineUrl = `${offlineBase}?screen=${encodeURIComponent(String(index))}`
-                + `&url=${encodeURIComponent(String(desiredUrl || ''))}`
-                + `&errorCode=${encodeURIComponent(String(errorCode))}`
-                + `&errorDescription=${encodeURIComponent(String(errorDescription || ''))}`
-                + `&attempt=${encodeURIComponent(String(attempt))}`;
-
-              mainWindow.webContents.loadURL(offlineUrl).catch(() => {});
-            }
-          } catch (_) {
-          }
-
-          if (mainWindow.webContents.__upvNetFailTimer) return;
-
-          const delayMs = Math.min(60_000, Math.max(5_000, 1000 * (2 ** Math.min(6, attempt))));
-          mainWindow.webContents.__upvNetFailTimer = setTimeout(() => {
-            try {
-              mainWindow.webContents.__upvNetFailTimer = undefined;
-              if (isQuitting()) return;
-              if (!desiredUrl) return;
-              mainWindow.webContents.loadURL(desiredUrl, { userAgent }).catch(() => {});
-            } catch (_) {
-            }
-          }, delayMs);
-
-          try {
-            const lastRetryLog = Number(mainWindow.webContents.__upvLastNetFailRetryLogAt || 0);
-            if (now - lastRetryLog > 5_000) {
-              mainWindow.webContents.__upvLastNetFailRetryLogAt = now;
-              logEvent('WARN', 'Network load failed; retry scheduled', {
-                index,
-                errorCode,
-                errorDescription,
-                delayMs,
-              });
-            }
-          } catch (_) {
-          }
-        } catch (_) {
-        }
-
+      if (isNetworkError(errorCode)) {
+        showOfflineAndRetry(mainWindow, index, errorCode, errorDescription);
         return;
       }
 
