@@ -363,7 +363,7 @@ function createWindowsManager({
       mainWindow.maximize();
     }
 
-    mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow.once('ready-to-show', () => {
       if (!mainWindow.isDestroyed()) mainWindow.show();
     });
     mainWindow.loadFile('./src/html/index.html').catch(() => {});
