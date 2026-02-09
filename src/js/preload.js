@@ -406,12 +406,12 @@ async function handleLiveviewV3() {
     setStyle(document.querySelectorAll("[class^=dashboard__Content]")[0], 'padding', '0');
     setStyle(
         document.querySelectorAll("[class^=dashboard__LiveViewWrapper]")[0]
-            .querySelectorAll("[class^=dashboard__Scrollable]")[0],
+            ?.querySelectorAll("[class^=dashboard__Scrollable]")[0],
         'paddingBottom', '0'
     );
     setStyle(
         document.querySelectorAll("[class^=dashboard__LiveViewWrapper]")[0]
-            .querySelectorAll("[class^=liveview__ViewportsWrapper]")[0],
+            ?.querySelectorAll("[class^=liveview__ViewportsWrapper]")[0],
         'maxWidth', 'calc(177.778vh - 50px)'
     );
 
@@ -439,17 +439,17 @@ async function handleLiveviewV4andNewer() {
     setStyle(document.querySelectorAll("[class^=liveView__FullscreenWrapper]")[0], 'background-color', 'black');
     setStyle(
         document.querySelectorAll("[class^=liveView__LiveViewWrapper]")[0]
-            .querySelectorAll("[class^=common__Widget]")[0],
+            ?.querySelectorAll("[class^=common__Widget]")[0],
         'border', '0'
     );
     setStyle(
         document.querySelectorAll("[class^=liveView__LiveViewWrapper]")[0]
-            .querySelectorAll("[class^=dashboard__Scrollable]")[0],
+            ?.querySelectorAll("[class^=dashboard__Scrollable]")[0],
         'paddingBottom', '0'
     );
     setStyle(
         document.querySelectorAll("[class^=liveView__LiveViewWrapper]")[0]
-            .querySelectorAll("[class^=liveview__ViewportsWrapper]")[0],
+            ?.querySelectorAll("[class^=liveview__ViewportsWrapper]")[0],
         'maxWidth', 'calc((100vh) * 1.7777777777777777)'
     );
 
@@ -532,11 +532,13 @@ async function run() {
     if (checkUrl('protect/dashboard') && version.startsWith('3.')) {
         console.log('run logic v3');
 
-        await handleLiveviewV3();
-
-        await wait(4000);
-
-        await handleLiveviewV3();
+        try {
+            await handleLiveviewV3();
+            await wait(4000);
+            await handleLiveviewV3();
+        } catch (e) {
+            console.log('[UPV] v3 UI setup error (non-fatal):', e?.message || e);
+        }
     }
 
     // unifi stuff - fullscreen for dashboard (version 4+)
@@ -544,11 +546,13 @@ async function run() {
     if (checkUrl('protect/dashboard') && Number.isFinite(majorVersion) && majorVersion >= 4) {
         console.log('run logic v' + majorVersion);
 
-        await handleLiveviewV4andNewer();
-
-        await wait(4000);
-
-        await handleLiveviewV4andNewer();
+        try {
+            await handleLiveviewV4andNewer();
+            await wait(4000);
+            await handleLiveviewV4andNewer();
+        } catch (e) {
+            console.log('[UPV] v' + majorVersion + ' UI setup error (non-fatal):', e?.message || e);
+        }
     }
 
     // keep session alive by refreshing the token before it expires
