@@ -589,7 +589,11 @@ async function run() {
         // wait until ~10 minutes before expire or page url changed
         await waitUntil(() => (desiredUrl ? !checkUrl(desiredUrl) : true) || new Date().getTime() > (loginExpiresAt - offset), -1, 60000);
 
-        location.reload();
+        if (desiredUrl) {
+            window.location.href = desiredUrl;
+        } else {
+            location.reload();
+        }
     }
 }
 
