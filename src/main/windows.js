@@ -261,8 +261,6 @@ function createWindowsManager({
 
   async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true, index = 0) {
     if (store.has('config') && (urlOverride || store.get('config')?.url)) {
-      mainWindow.loadFile('./src/html/index.html').catch(() => {});
-
       try {
         await mainWindow.loadURL(urlOverride || store.get('config').url, {
           userAgent: userAgent
@@ -363,6 +361,8 @@ function createWindowsManager({
     if (state?.isMaximized || (!state?.bounds && maximizeHint)) {
       mainWindow.maximize();
     }
+
+    mainWindow.loadFile('./src/html/index.html').catch(() => {});
 
     attachNavigationGuards(mainWindow, index);
 
