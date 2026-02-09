@@ -1,100 +1,102 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <title>Unifi Protect Viewer Welcome</title>
-
-        <style>
-            body {
-                margin: 0;
-                padding: 0;
-
-                font-family: Arial, Helvetica, sans-serif;
-            }
-
-            .wrapper {
-                display: flex;
-                width: 100vw;
-                height: 100vh;
-                overflow: auto;
-            }
-
-            .sidebar {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                overflow-y: auto;
-
-                width: 240px;
-                background-color: white;
-                padding: 80px;
-            }
-
-            .main {
-                flex-grow: 10;
-                background-color: rgb(246, 246, 248);
-            }
-
-            .logo {
-                display: flex;
-                justify-content: center;
-            }
-
-            .logo img {
-                max-width: 64px;
-                border-radius: 32px;
-            }
-
-            .group {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .group button {
-                padding: 0 16px;
-                line-height: 32px;
-                border: 1px solid #006fff;
-                border-radius: 4px;
-                color: #fff;
-                background-color: #006fff;
-                cursor: pointer;
-            }
-        </style>
-    </head>
-
-    <body>
-        <div class="wrapper">
-            <div class="sidebar">
-                <div class="logo">
-                    <img src="../../src/img/128.png" alt="logo">
-                </div>
-
-                <div>
-                    <h3>Unifi Protect Viewer</h3>
-
-                    <p>Just an empty page, you should not be here!</p>
-
-                    <p>Maybe the url is not working :/</p>
-
-                    <p><small>Example Url: <br/>https://192.168.1.1/protect/liveview/635e65bd000c1c0387005a5f</small></p>
-                </div>
-
-                <div class="group">
-                    <button onclick="reset()">Reset Config</button>
-                </div>
-            </div>
-
-            <div class="main">
-
-            </div>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unifi Protect Viewer</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            background: #0b1220;
+            color: #e5e7eb;
+        }
+        .wrap {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+            gap: 20px;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.12);
+            border-top-color: #4aa3ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+        .status {
+            font-size: 14px;
+            opacity: 0.7;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            font-size: 13px;
+            opacity: 0.5;
+        }
+        .steps .done { opacity: 0.9; }
+        .steps .done::before { content: '\2713 '; color: #4aa3ff; }
+        .steps .active::before { content: '\25B6 '; color: #4aa3ff; }
+        .steps .pending { opacity: 0.4; }
+        .steps .pending::before { content: '\2022 '; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="spinner"></div>
+        <h1 class="title">Unifi Protect Viewer</h1>
+        <div class="status" id="status">Connecting to NVR...</div>
+        <div class="steps" id="steps">
+            <div class="active" id="step-connect">Connecting to server</div>
+            <div class="pending" id="step-auth">Authenticating</div>
+            <div class="pending" id="step-dashboard">Loading dashboard</div>
         </div>
+    </div>
 
-        <script type="text/javascript">
-            function reset() {
-                window.electronAPI.reset();
+    <script>
+        const steps = ['connect', 'auth', 'dashboard'];
+        let currentStep = 0;
 
-                window.electronAPI.restart();
+        function setStep(index, statusText) {
+            currentStep = index;
+            if (statusText) {
+                document.getElementById('status').textContent = statusText;
             }
-        </script>
-    </body>
+            steps.forEach((s, i) => {
+                const el = document.getElementById('step-' + s);
+                if (!el) return;
+                if (i < index) el.className = 'done';
+                else if (i === index) el.className = 'active';
+                else el.className = 'pending';
+            });
+        }
 
+        // listen for navigation events from main process
+        // the page will be replaced by loadURL shortly, so just show progress
+        let dots = 0;
+        setInterval(() => {
+            if (currentStep === 0) {
+                dots = (dots + 1) % 4;
+                document.getElementById('status').textContent = 'Connecting to NVR' + '.'.repeat(dots);
+            }
+        }, 500);
+    </script>
+</body>
 </html>

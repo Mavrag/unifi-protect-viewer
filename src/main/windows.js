@@ -260,6 +260,7 @@ function createWindowsManager({
       },
 
       icon: iconPath,
+      backgroundColor: '#0b1220',
 
       frame: true,
       movable: true,
