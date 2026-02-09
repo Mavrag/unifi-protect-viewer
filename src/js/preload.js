@@ -65,15 +65,6 @@ try {
 } catch (_) {
 }
 
-(async () => {
-    try {
-        const config = await ipcRenderer.invoke('configLoad');
-        const desiredUrl = getDesiredUrl(config);
-        startUrlEnforcer(desiredUrl);
-    } catch (_) {
-    }
-})();
-
 
 function ensureUpvStyle() {
     const id = 'upv-style';

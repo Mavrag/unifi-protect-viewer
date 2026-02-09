@@ -1,3 +1,4 @@
+const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 function createWindowsManager({
@@ -5,7 +6,6 @@ function createWindowsManager({
   store,
   viewerWindows,
   portable,
-  path,
   defaultWidth,
   defaultHeight,
   userAgent,
@@ -265,11 +265,10 @@ function createWindowsManager({
   }
 
   async function handleWindow(mainWindow, urlOverride = undefined, allowConfigFallback = true, index = 0) {
-    if (store.has('config') && (urlOverride || store.get('config')?.url)) {
+    const targetUrl = urlOverride || getDesiredUrlForIndex(index);
+    if (store.has('config') && targetUrl) {
       try {
-        await mainWindow.loadURL(urlOverride || store.get('config').url, {
-          userAgent: userAgent
-        });
+        await mainWindow.loadURL(targetUrl, { userAgent });
       } catch (e) {
         const msg = String(e?.message || e || '');
         if (msg.includes('ERR_ABORTED') || msg.includes('(-3)')) {

@@ -65,7 +65,6 @@ const windowsManager = createWindowsManager({
   store,
   viewerWindows,
   portable,
-  path,
   defaultWidth,
   defaultHeight,
   userAgent,
