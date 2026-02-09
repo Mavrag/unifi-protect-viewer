@@ -340,7 +340,17 @@ function createWindowsManager({
       } catch (_) {
       }
 
-      const isNetworkError = errorCode === -102 || errorCode === -105 || errorCode === -106 || errorCode === -2;
+      const isNetworkError = errorCode === -2     // ERR_FAILED
+        || errorCode === -7                       // ERR_TIMED_OUT
+        || errorCode === -21                      // ERR_NETWORK_CHANGED
+        || errorCode === -100                     // ERR_CONNECTION_CLOSED
+        || errorCode === -101                     // ERR_CONNECTION_RESET
+        || errorCode === -102                     // ERR_CONNECTION_REFUSED
+        || errorCode === -104                     // ERR_CONNECTION_FAILED
+        || errorCode === -105                     // ERR_NAME_NOT_RESOLVED
+        || errorCode === -106                     // ERR_INTERNET_DISCONNECTED
+        || errorCode === -109                     // ERR_ADDRESS_UNREACHABLE
+        || errorCode === -118;                    // ERR_CONNECTION_TIMED_OUT
       if (isNetworkError) {
         try {
           const desiredUrl = getDesiredUrlForIndex(index);
