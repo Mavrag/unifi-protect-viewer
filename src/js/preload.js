@@ -579,21 +579,48 @@ async function run() {
         await handleLiveviewV4andNewer();
     }
 
-    // reload & login when token expires (v3 & v4) and we got the expires at in localstorage
-    if (localStorage.getItem('portal:localSessionsExpiresAt')) {
+    // keep session alive by refreshing the token before it expires
+    while (localStorage.getItem('portal:localSessionsExpiresAt')) {
         const loginExpiresAt = +localStorage.getItem('portal:localSessionsExpiresAt');
 
-        // offset 10 minutes before expire
+        // refresh 10 minutes before expiry
         const offset = 10 * 60 * 1000;
 
         // wait until ~10 minutes before expire or page url changed
         await waitUntil(() => (desiredUrl ? !checkUrl(desiredUrl) : true) || new Date().getTime() > (loginExpiresAt - offset), -1, 60000);
 
+        // if page URL drifted away, do a full navigation to fix it
+        if (desiredUrl && !checkUrl(desiredUrl) && !checkUrl('login?redirect')) {
+            window.location.href = desiredUrl;
+            return;
+        }
+
+        // try silent token refresh — a fetch to the NVR extends the session cookie
+        try {
+            const origin = new URL(desiredUrl || document.URL).origin;
+            const resp = await fetch(origin + '/api/users/self', {
+                method: 'GET',
+                credentials: 'same-origin',
+            });
+
+            if (resp.ok) {
+                console.log('[UPV] Token refreshed silently');
+                // loop back — wait for next expiry cycle
+                continue;
+            }
+
+            console.log('[UPV] Token refresh failed, status:', resp.status);
+        } catch (e) {
+            console.log('[UPV] Token refresh error:', e?.message || e);
+        }
+
+        // silent refresh failed — fall back to full navigation
         if (desiredUrl) {
             window.location.href = desiredUrl;
         } else {
             location.reload();
         }
+        return;
     }
 }
 
